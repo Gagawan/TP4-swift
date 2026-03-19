@@ -72,10 +72,34 @@ struct ListingController: RouteCollection {
         do {
             try CreateListingRequest.validate(content: req)
         } catch {
-            throw Abort(.unprocessableEntity, reason: error.localizedDescription)
+            if let payload = try? req.content.decode(CreateListingRequest.self) {
+                var validationMessages: [String] = []
+                if payload.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    validationMessages.append("title must not be empty")
+                }
+                if payload.price <= 0 {
+                    validationMessages.append("price must be greater than 0")
+                }
+                if !validationMessages.isEmpty {
+                    throw Abort(.unprocessableEntity, reason: validationMessages.joined(separator: ", "))
+                }
+            }
+
+            throw Abort(.unprocessableEntity, reason: "Validation failed.\n\(error.localizedDescription)")
         }
 
         let payload = try req.content.decode(CreateListingRequest.self)
+
+        var validationMessages: [String] = []
+        if payload.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            validationMessages.append("title must not be empty")
+        }
+        if payload.price <= 0 {
+            validationMessages.append("price must be greater than 0")
+        }
+        if !validationMessages.isEmpty {
+            throw Abort(.unprocessableEntity, reason: validationMessages.joined(separator: ", "))
+        }
 
         guard CreateListingRequest.allowedCategories.contains(payload.category.lowercased()) else {
             throw Abort(.unprocessableEntity, reason: "category must be one of: electronics, clothing, furniture, other")
@@ -102,7 +126,7 @@ struct ListingController: RouteCollection {
 
     private func show(req: Request) async throws -> ListingResponse {
         guard let listingID = req.parameters.get("id", as: UUID.self) else {
-            throw Abort(.notFound)
+            throw Abort(.notFound, reason: "Listing not found.")
         }
 
         guard let listing = try await Listing.query(on: req.db)
@@ -110,7 +134,7 @@ struct ListingController: RouteCollection {
             .with(\.$seller)
             .first()
         else {
-            throw Abort(.notFound)
+            throw Abort(.notFound, reason: "Listing not found.")
         }
 
         return try ListingResponse(listing: listing)
@@ -118,11 +142,11 @@ struct ListingController: RouteCollection {
 
     private func delete(req: Request) async throws -> HTTPStatus {
         guard let listingID = req.parameters.get("id", as: UUID.self) else {
-            throw Abort(.notFound)
+            throw Abort(.notFound, reason: "Listing not found.")
         }
 
         guard let listing = try await Listing.find(listingID, on: req.db) else {
-            throw Abort(.notFound)
+            throw Abort(.notFound, reason: "Listing not found.")
         }
 
         try await listing.delete(on: req.db)

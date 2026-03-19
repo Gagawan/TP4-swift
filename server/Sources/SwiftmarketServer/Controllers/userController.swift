@@ -18,12 +18,17 @@ struct UserController: RouteCollection {
         do {
             try CreateUserRequest.validate(content: req)
         } catch {
-            throw Abort(.unprocessableEntity, reason: error.localizedDescription)
+            throw Abort(.unprocessableEntity, reason: "Validation failed.\n\(error.localizedDescription)")
         }
 
         let payload = try req.content.decode(CreateUserRequest.self)
         let user = User(username: payload.username, email: payload.email)
-        try await user.save(on: req.db)
+
+        do {
+            try await user.save(on: req.db)
+        } catch {
+            throw Abort(.conflict, reason: "A user with this username or email already exists.")
+        }
 
         let response = try UserResponse(user: user)
         return try await response.encodeResponse(status: .created, for: req)
@@ -39,11 +44,11 @@ struct UserController: RouteCollection {
 
     private func show(req: Request) async throws -> UserResponse {
         guard let userID = req.parameters.get("id", as: UUID.self) else {
-            throw Abort(.notFound)
+            throw Abort(.notFound, reason: "User not found.")
         }
 
         guard let user = try await User.find(userID, on: req.db) else {
-            throw Abort(.notFound)
+            throw Abort(.notFound, reason: "User not found.")
         }
 
         return try UserResponse(user: user)
@@ -51,11 +56,11 @@ struct UserController: RouteCollection {
 
     private func listings(req: Request) async throws -> [ListingResponse] {
         guard let userID = req.parameters.get("id", as: UUID.self) else {
-            throw Abort(.notFound)
+            throw Abort(.notFound, reason: "User not found.")
         }
 
         guard try await User.find(userID, on: req.db) != nil else {
-            throw Abort(.notFound)
+            throw Abort(.notFound, reason: "User not found.")
         }
 
         let listings = try await Listing.query(on: req.db)
